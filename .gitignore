@@ -1,0 +1,10 @@
+# Environments
+.env
+.venv
+
+# Database
+*.sqlite3
+*.db
+
+# Logs
+*.log

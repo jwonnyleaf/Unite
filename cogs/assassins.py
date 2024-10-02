@@ -1,0 +1,258 @@
+from __future__ import annotations
+
+import os
+from typing import TYPE_CHECKING
+
+import discord
+from discord import app_commands
+from discord.ext import commands
+from discord.ext.commands import Context
+from utils.context import ConfirmationView
+from utils.constants import EmbedColors
+from database.assassins import PlayerStatus
+
+if TYPE_CHECKING:
+    from bot import UniteBot
+    from utils.context import Context, GuildContext
+
+
+class Assassins(commands.Cog, name="assassin"):
+    def __init__(self, bot: UniteBot):
+        self.bot = bot
+        self.db = bot.db
+        self.started = False
+
+    @app_commands.command(
+        name="register", description="Create and link your Assassin profile."
+    )
+    @app_commands.describe(
+        name="Your Full Name",
+        email="TAMU Email Address",
+        photo_url="Link To Your Headshot Photo",
+    )
+    async def register(
+        self, interaction: discord.Interaction, name: str, email: str, photo_url: str
+    ):
+        """Register for the Assassin game."""
+        # Check if the game has already started
+        if self.started:
+            embed = discord.Embed(
+                title="Register",
+                description="The game has already started.",
+                color=discord.Color.red(),
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+        # Check if the user has already registered
+        if await self.db.assassins.get_player_by_discord_id(interaction.user):
+            embed = discord.Embed(
+                title="Register",
+                description="You have already registered.",
+                color=discord.Color.red(),
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+        # Register the player
+        await self.db.assassins.add_player(name, email, interaction.user, photo_url)
+
+        embed = discord.Embed(
+            title="Register",
+            description=f"Successfully registered as an Assassin!",
+            color=discord.Color.green(),
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(
+        name="unregister", description="Unlink your Assassins profile."
+    )
+    async def unregister(self, interaction: discord.Interaction):
+        """Unregister from the Assassin game."""
+        # Check if the user has already registered
+        if not await self.db.assassins.get_player_by_discord_id(interaction.user):
+            embed = discord.Embed(
+                title="Unregister",
+                description="You have not registered.",
+                color=discord.Color.red(),
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+        # Confirm the user wants to unregister
+        embed = discord.Embed(
+            title="Are You Sure?",
+            description="This will permanently delete your profile and you will not be able to participate in the game unless you recreate a profile.",
+            color=EmbedColors.PRIMARY,
+        )
+        confirm = ConfirmationView(
+            timeout=60.0, authorID=interaction.user.id, delete_after=False
+        )
+        await interaction.response.send_message(
+            embed=embed, view=confirm, ephemeral=True
+        )
+        confirm.message = await interaction.original_response()
+        await confirm.wait()
+
+        # If the user confirms, unregister them
+        if confirm.value:
+            await self.db.assassins.delete_player_by_discord_id(interaction.user)
+            embed = discord.Embed(
+                title="Unregister",
+                description="Successfully unregistered from the Assassins game.",
+                color=discord.Color.green(),
+            )
+            await (await interaction.original_response()).edit(embed=embed)
+
+    @app_commands.command(name="leave", description="Leave the Assassins game.")
+    async def leave(self, interaction: discord.Interaction):
+        """Leave the Assassin game."""
+        # Check if the user has already registered
+        player = await self.db.assassins.get_player_by_discord_id(interaction.user)
+        if not player:
+            embed = discord.Embed(
+                title="Leave",
+                description="You are not a registered player.",
+                color=discord.Color.red(),
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+        # If the user is dead, they cannot leave the game
+        if player.status == PlayerStatus.DEAD:
+            embed = discord.Embed(
+                title="Leave",
+                description="You are already dead and cannot leave the game.",
+                color=discord.Color.red(),
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+        # If game has not started, set the player status to spectator
+        if not self.started:
+            await self.db.assassins.set_player_status(
+                interaction.user, PlayerStatus.SPECTATOR
+            )
+            embed = discord.Embed(
+                title="Leave",
+                description="Successfully left the Assassins game.",
+                color=discord.Color.green(),
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+        # If the game has started, set the player status to dead after confirming
+        embed = discord.Embed(
+            title="Are You Sure?",
+            description="This will mark you as dead in the game. Are you sure you want to leave?",
+            color=EmbedColors.PRIMARY,
+        )
+        confirm = ConfirmationView(
+            timeout=60.0, authorID=interaction.user.id, delete_after=False
+        )
+        await interaction.response.send_message(
+            embed=embed, view=confirm, ephemeral=True
+        )
+        confirm.message = await interaction.original_response()
+        await confirm.wait()
+
+        # If the user confirms, set their status to dead
+        if confirm.value:
+            await self.db.assassins.set_player_status(
+                interaction.user, PlayerStatus.DEAD
+            )
+            embed = discord.Embed(
+                title="Leave",
+                description="You have forfeitted the current game and now declared dead.",
+                color=discord.Color.green(),
+            )
+            await (await interaction.original_response()).edit(embed=embed)
+
+            # Announce the player's death
+            await self.announce(
+                message=f"{interaction.user.mention} has been eliminated."
+            )
+
+    @app_commands.command(name="start", description="Start the Assassins game.")
+    async def start(self, interaction: discord.Interaction):
+        """Start the Assassin game."""
+        # Check if the game has already started
+        if self.started:
+            embed = discord.Embed(
+                title="Start",
+                description="The game has already started.",
+                color=discord.Color.red(),
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+        self.started = True
+
+        embed = discord.Embed(
+            title="Assassins Game Started!",
+            description="The game has officially started. Best of luck to everyone!",
+            color=discord.Color.green(),
+        )
+
+        # Send the announcement with @everyone mention
+        await interaction.response.send_message(
+            content="@everyone",
+            embed=embed,
+            allowed_mentions=discord.AllowedMentions(everyone=True),
+        )
+
+    @app_commands.command(name="end", description="End the Assassins game.")
+    async def end(self, interaction: discord.Interaction):
+        """End the Assassin game."""
+        # Check if the game has already ended
+        if not self.started:
+            embed = discord.Embed(
+                title="End",
+                description="The game has not started yet.",
+                color=discord.Color.red(),
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+        self.started = False
+
+        embed = discord.Embed(
+            title="Assassins Game Ended!",
+            description="The game has officially ended. Thank you for playing!",
+            color=discord.Color.green(),
+        )
+
+        # Send the announcement with @everyone mention
+        await interaction.response.send_message(
+            content="@everyone",
+            embed=embed,
+            allowed_mentions=discord.AllowedMentions(everyone=True),
+        )
+
+    @app_commands.command(
+        name="announce", description="Announce a message to all players."
+    )
+    @app_commands.describe(message="The message to announce.")
+    async def announce(self, interaction: discord.Interaction, message: str):
+        """Announce a message to all players."""
+        # Mention all players with @everyone
+        embed = discord.Embed(
+            title="Assassins Announcement",
+            description=message,
+            color=EmbedColors.PRIMARY,
+        )
+        await interaction.response.send_message(content="<@everyone>", embed=embed)
+
+    @app_commands.command(name="help", description="Get help for the Assassins game.")
+    async def help(self, interaction: discord.Interaction):
+        """Get help for the Assassin game."""
+        embed = discord.Embed(
+            title="Help",
+            description="This is the help command for the Assassins game.",
+            color=discord.Color.green(),
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+async def setup(bot: commands.Bot) -> None:
+    await bot.add_cog(Assassins(bot))
