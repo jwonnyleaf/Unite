@@ -28,6 +28,7 @@ class Assassins:
                 wins INTEGER DEFAULT 0,
                 kills INTEGER DEFAULT 0,
                 deaths INTEGER DEFAULT 0,
+                gamesPlayed INTEGER DEFAULT 0,
                 status TEXT NOT NULL DEFAULT 'Spectator'
             );
             """
