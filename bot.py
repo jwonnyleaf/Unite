@@ -29,7 +29,7 @@ class UniteBot(
 ):
     def __init__(self):
         super().__init__(
-            command_prefix="!",
+            command_prefix=self.get_prefix,
             intents=intents,
             help_command=None,
             allowed_mentions=discord.AllowedMentions(
@@ -40,6 +40,14 @@ class UniteBot(
         )
         self.logger = log
         self.db = None
+
+    async def get_prefix(self, message: discord.Message) -> str:
+        """Get the prefix for the specified guild."""
+        if not message.guild:
+            return "!"
+
+        prefix = await self.db.guilds.get_prefix(message.guild)
+        return prefix
 
     async def setup_hook(self) -> None:
         """
@@ -52,6 +60,16 @@ class UniteBot(
         await self.load_database()
         await self.load_cogs()
         self.logger.info("UniteBot is ready.")
+
+    async def on_ready(self) -> None:
+        for guild in self.guilds:
+            guildID = guild.id
+
+            # Check if the guild is already in the database
+            _guild = await self.db.guilds.get_guild(guildID)
+
+            if _guild is None:
+                await self.db.guilds.add_guild(guildID)
 
     async def load_cogs(self):
         for extension in INITIAL_EXTENSIONS:
@@ -72,6 +90,7 @@ class UniteBot(
         self.logger.info("Connected to the database.")
 
         await self.db.assassins.create_table()
+        await self.db.guilds.create_table()
 
     async def on_message(self, message: discord.Message) -> None:
         """Executed every time a message is sent in a channel the bot can see."""
