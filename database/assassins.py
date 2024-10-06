@@ -39,6 +39,16 @@ class Assassins:
         )
         await conn.close()
 
+    async def set_game_state(self, guildID: int, state: bool):
+        """Set the current Guild's Assassins game state."""
+        conn = await self._db.connect()
+        await self._db.run(
+            f"UPDATE guilds SET assassinsStarted = ? WHERE guildID = ?;",
+            (state, guildID),
+            conn=conn,
+        )
+        await conn.close()
+
     async def add_player(
         self, name: str, email: str, discordID: discord.Member, photoURL: str
     ):
@@ -87,6 +97,15 @@ class Assassins:
         )
 
         return player
+
+    async def get_all_players(self):
+        """Get all players from the database."""
+        players = await self._db.execute(
+            f"SELECT * FROM {TABLE_NAME};",
+            fetch="all",
+        )
+
+        return players
 
     async def delete_player_by_discord_id(self, player: discord.Member):
         """Delete a player by their discord ID."""

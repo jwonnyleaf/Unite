@@ -68,7 +68,7 @@ class Admin(commands.Cog, name="admin"):
     ) -> None:
         """Set the channel for the bot."""
         await self.bot.db.guilds.set_channel(
-            interaction.guild, channel_type, channel.id
+            interaction.guild, channel_type, channel
         )
         embed = discord.Embed(
             title="Channel Set",

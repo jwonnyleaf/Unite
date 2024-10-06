@@ -12,7 +12,8 @@ class Guilds:
             CREATE TABLE IF NOT EXISTS guilds (
                 guildID BIGINT PRIMARY KEY,
                 prefix TEXT NOT NULL DEFAULT '!',
-                assassinsChannelID BIGINT
+                assassinsChannelID BIGINT,
+                assassinsStarted BOOLEAN DEFAULT FALSE
             );
             """
 
@@ -39,6 +40,13 @@ class Guilds:
 
         return result
 
+    async def get_all_guilds(self):
+        """Get all guilds in the database."""
+        query = f"SELECT * FROM guilds;"
+        result = await self._db.execute(query, fetch="all")
+
+        return result
+
     async def get_prefix(self, guild: discord.Guild) -> str:
         """Get the prefix for the specified guild."""
         query = f"SELECT prefix FROM guilds WHERE guildID = ?;"
@@ -54,10 +62,11 @@ class Guilds:
     async def get_channel(self, guild: discord.Guild, channelType: str) -> int:
         """Get the channel ID for the specified guild."""
         channelType = f"{channelType}ChannelID"
+        print(channelType)
         query = f"SELECT {channelType} FROM guilds WHERE guildID = ?;"
+        print(query)
         result = await self._db.execute(query, (guild.id,), fetch="one")
-
-        return result.channelType if result else None
+        return result[0] if result else None
 
     async def set_channel(
         self, guild: discord.Guild, channelType: str, channelID: discord.TextChannel
@@ -66,3 +75,13 @@ class Guilds:
         channelType = f"{channelType}ChannelID"
         query = f"UPDATE guilds SET {channelType} = ? WHERE guildID = ?;"
         await self._db.execute(query, (channelID.id, guild.id), commit=True)
+
+    async def get_allowed_columns(self):
+        """Get the allowed columns dynamically from the database schema."""
+        query = """
+        PRAGMA table_info(guilds);  -- This query fetches the column names of the guilds table
+        """
+        result = await self._db.execute(query, fetch="all")
+
+        allowed_columns = [row["name"] for row in result]
+        return allowed_columns
