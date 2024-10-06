@@ -21,52 +21,7 @@ intents.message_content = True
 intents.guilds = True
 intents.members = True
 
-
-class LoggingFormatter(logging.Formatter):
-    black = "\x1b[30m"
-    red = "\x1b[31m"
-    green = "\x1b[32m"
-    yellow = "\x1b[33m"
-    blue = "\x1b[34m"
-    gray = "\x1b[38m"
-
-    reset = "\x1b[0m"
-    bold = "\x1b[1m"
-
-    COLORS = {
-        logging.DEBUG: gray + bold,
-        logging.INFO: blue + bold,
-        logging.WARNING: yellow + bold,
-        logging.ERROR: red,
-        logging.CRITICAL: red + bold,
-    }
-
-    def format(self, record):
-        log_color = self.COLORS[record.levelno]
-        format = "(black){asctime}(reset) (levelcolor){levelname:<8}(reset) (green){name}(reset) {message}"
-        format = format.replace("(black)", self.black + self.bold)
-        format = format.replace("(reset)", self.reset)
-        format = format.replace("(levelcolor)", log_color)
-        format = format.replace("(green)", self.green + self.bold)
-        formatter = logging.Formatter(format, "%Y-%m-%d %H:%M:%S", style="{")
-        return formatter.format(record)
-
-
-logger = logging.getLogger("UniteSystem")
-logger.setLevel(logging.INFO)
-
-# Console handler
-console_handler = logging.StreamHandler()
-console_handler.setFormatter(LoggingFormatter())
-# File handler
-file_handler = logging.FileHandler(filename="discord.log", encoding="utf-8", mode="w")
-file_handler_formatter = logging.Formatter(
-    "[{asctime}] [{levelname:<8}] {name}: {message}", "%Y-%m-%d %H:%M:%S", style="{"
-)
-file_handler.setFormatter(file_handler_formatter)
-
-logger.addHandler(console_handler)
-logger.addHandler(file_handler)
+log = logging.getLogger("UniteBot")
 
 
 class UniteBot(
@@ -74,7 +29,7 @@ class UniteBot(
 ):
     def __init__(self):
         super().__init__(
-            command_prefix="!",
+            command_prefix=self.get_prefix,
             intents=intents,
             help_command=None,
             allowed_mentions=discord.AllowedMentions(
@@ -83,8 +38,16 @@ class UniteBot(
             activity=discord.Activity(type=discord.ActivityType.watching, name="/help"),
             status=discord.Status.do_not_disturb,
         )
-        self.logger = logger
+        self.logger = log
         self.db = None
+
+    async def get_prefix(self, message: discord.Message) -> str:
+        """Get the prefix for the specified guild."""
+        if not message.guild:
+            return "!"
+
+        prefix = await self.db.guilds.get_prefix(message.guild)
+        return prefix
 
     async def setup_hook(self) -> None:
         """
@@ -97,6 +60,16 @@ class UniteBot(
         await self.load_database()
         await self.load_cogs()
         self.logger.info("UniteBot is ready.")
+
+    async def on_ready(self) -> None:
+        for guild in self.guilds:
+            guildID = guild.id
+
+            # Check if the guild is already in the database
+            _guild = await self.db.guilds.get_guild(guildID)
+
+            if _guild is None:
+                await self.db.guilds.add_guild(guildID)
 
     async def load_cogs(self):
         for extension in INITIAL_EXTENSIONS:
@@ -117,6 +90,7 @@ class UniteBot(
         self.logger.info("Connected to the database.")
 
         await self.db.assassins.create_table()
+        await self.db.guilds.create_table()
 
     async def on_message(self, message: discord.Message) -> None:
         """Executed every time a message is sent in a channel the bot can see."""
@@ -141,16 +115,13 @@ class UniteBot(
                 f"Executed {executed_command} command by {context.author} (ID: {context.author.id}) in DMs"
             )
 
-    async def on_app_command_completion(self, context: Context) -> None:
+    async def on_app_command_completion(
+        self, interaction: discord.Interaction, command: discord.app_commands.Command
+    ) -> None:
         """Executed when an application command is successfully completed."""
-        if context.guild is not None:
-            self.logger.info(
-                f"Executed {context.command} command in {context.guild.name} (ID: {context.guild.id}) by {context.author} (ID: {context.author.id})"
-            )
-        else:
-            self.logger.info(
-                f"Executed {context.command} command by {context.author} (ID: {context.author.id}) in DMs"
-            )
+        self.logger.info(
+            f"Executed /{command.name} application command in {interaction.guild.name} (ID: {interaction.guild.id}) by {interaction.user} (ID: {interaction.user.id})"
+        )
 
     async def start(self) -> None:
         """Start the bot."""

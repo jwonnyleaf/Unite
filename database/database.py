@@ -1,5 +1,6 @@
 import aiosqlite
 from typing import Any, Optional, Tuple
+from collections import namedtuple
 
 
 class Database:
@@ -8,14 +9,28 @@ class Database:
 
     @staticmethod
     async def _fetch(cursor: aiosqlite.Cursor, mode: str) -> Optional[Any]:
+        """Fetch the result and return it as a namedtuple if data exists."""
         if mode == "one":
-            return await cursor.fetchone()
-        if mode == "many":
-            return await cursor.fetchmany()
-        if mode == "all":
-            return await cursor.fetchall()
-
+            row = await cursor.fetchone()
+            if row:
+                return Database._row_to_namedtuple(cursor, row)
+        elif mode == "many":
+            rows = await cursor.fetchmany()
+            if rows:
+                return [Database._row_to_namedtuple(cursor, row) for row in rows]
+        elif mode == "all":
+            rows = await cursor.fetchall()
+            if rows:
+                return [Database._row_to_namedtuple(cursor, row) for row in rows]
         return None
+
+    @staticmethod
+    def _row_to_namedtuple(cursor: aiosqlite.Cursor, row: Tuple) -> namedtuple:
+        """Convert a database row into a namedtuple using cursor column descriptions."""
+        columns = [col[0] for col in cursor.description]
+
+        RowTuple = namedtuple("RowTuple", columns)
+        return RowTuple(*row)
 
     async def connect(self) -> aiosqlite.Connection:
         """Connect to the database and return the connection object."""
