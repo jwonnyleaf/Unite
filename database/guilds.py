@@ -1,5 +1,6 @@
 import discord
 from database.database import Database
+from utils.constants import GuildChannelTypes
 
 
 class Guilds:
@@ -59,20 +60,18 @@ class Guilds:
         query = f"UPDATE guilds SET prefix = ? WHERE guildID = ?;"
         await self._db.execute(query, (prefix, guild.id), commit=True)
 
-    async def get_channel(self, guild: discord.Guild, channelType: str) -> int:
+    async def get_channel(self, guild: discord.Guild, channelType: GuildChannelTypes) -> int:
         """Get the channel ID for the specified guild."""
-        channelType = f"{channelType}ChannelID"
-        print(channelType)
+        channelType = f"{channelType.lower()}ChannelID"
         query = f"SELECT {channelType} FROM guilds WHERE guildID = ?;"
-        print(query)
         result = await self._db.execute(query, (guild.id,), fetch="one")
         return result[0] if result else None
 
     async def set_channel(
-        self, guild: discord.Guild, channelType: str, channelID: discord.TextChannel
+        self, guild: discord.Guild, channelType: GuildChannelTypes, channelID: discord.TextChannel
     ) -> None:
         """Set the channel ID for the specified guild."""
-        channelType = f"{channelType}ChannelID"
+        channelType = f"{channelType.lower()}ChannelID"
         query = f"UPDATE guilds SET {channelType} = ? WHERE guildID = ?;"
         await self._db.execute(query, (channelID.id, guild.id), commit=True)
 

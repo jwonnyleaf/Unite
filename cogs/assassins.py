@@ -9,8 +9,8 @@ from discord import app_commands
 from discord.ext import commands
 from discord.ext.commands import Context
 from utils.context import ConfirmationView
-from utils.constants import EmbedColors
-from utils.utils import validImageURL
+from utils.constants import EmbedColors, GuildChannelTypes
+from utils.utils import validImageURL, sendAnnouncement
 from database.assassins import PlayerStatus
 
 if TYPE_CHECKING:
@@ -23,24 +23,27 @@ class Assassins(commands.Cog, name="assassin"):
         self.bot = bot
         self.db = bot.db
         self.started = {}
+        self.lobby = {}
 
     async def cog_load(self):
         guilds = await self.db.guilds.get_all_guilds()
         for guild in guilds:
             self.started[guild.guildID] = guild.assassinsStarted
+            self.lobby[guild.guildID] = []
 
     @commands.Cog.listener()
-    async def on_player_dead(self, user: discord.Member):
+    async def on_player_death(self, user: discord.Member):
         """Announce when a player is eliminated."""
         player = await self.db.assassins.get_player_by_discord_id(user)
-        channelID = await self.db.guilds.get_channel(user.guild, "assassins")
         embed = discord.Embed(
             title="Assassins Announcement",
-            description=f"{player.name ({user.mention})} has been eliminated.",
+            description=f"{player.name} ({user.mention}) has been eliminated.",
             color=EmbedColors.RED,
         )
-
-        await self.bot.get_channel(channelID).send(embed=embed)
+        self.lobby[user.guild.id].remove(user)
+        await sendAnnouncement(
+            self, user.guild, GuildChannelTypes.ASSASSINS, embed, everyone=True
+        )
 
     @app_commands.command(
         name="register", description="Create and link your Assassin profile."
@@ -147,8 +150,11 @@ class Assassins(commands.Cog, name="assassin"):
     @app_commands.command(name="join", description="Join the Assassins game.")
     async def join(self, interaction: discord.Interaction):
         """Join the Assassin game."""
+        guild: discord.Guild = interaction.guild
+        user: discord.Member = interaction.user
+
         # Check if the user has already registered
-        player = await self.db.assassins.get_player_by_discord_id(interaction.user)
+        player = await self.db.assassins.get_player_by_discord_id(user)
         if not player:
             embed = discord.Embed(
                 title="Join",
@@ -159,32 +165,58 @@ class Assassins(commands.Cog, name="assassin"):
             return
 
         # If the game has started, set the player status to spectator
-        if self.started:
+        if self.started[interaction.guild.id]:
             embed = discord.Embed(
-                title="Join",
+                title="Asssassins Join",
                 description="The game has already started. Please wait for the game to end before joining.",
                 color=EmbedColors.RED,
             )
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
-        # If the game has not started, set the player status to alive
-        await self.db.assassins.set_player_status(interaction.user, PlayerStatus.ALIVE)
+        # If the player is already in the lobby, do not add them again
+        if interaction.user in self.lobby[guild.id]:
+            embed = discord.Embed(
+                title="Assassins Join",
+                description="You are already in the lobby.",
+                color=EmbedColors.RED,
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+        # If the game has not started, allow the player to join
+        if guild.id not in self.lobby:
+            self.lobby[guild.id] = []
+
+        self.lobby[guild.id].append(user)
+        await self.db.assassins.set_player_status(user, PlayerStatus.ALIVE)
         embed = discord.Embed(
-            title="Join",
-            description="Successfully joined the Assassins game. The game will start soon.",
+            title="Assassins Join",
+            description="Successfully joined the Assassins lobby. The game will start soon.",
             color=EmbedColors.GREEN,
         )
+
+        # Announce the player's entry
+        announceEmbed = discord.Embed(
+            title="Assassins Announcement",
+            description=f"{player.name} ({user.mention}) has joined the game.",
+            color=EmbedColors.PRIMARY,
+        )
+
+        await sendAnnouncement(self, guild, GuildChannelTypes.ASSASSINS, announceEmbed)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(name="leave", description="Leave the Assassins game.")
     async def leave(self, interaction: discord.Interaction):
-        """Leave the Assassin game."""
+        """Leave the Assassin game/lobby."""
+        guild = interaction.guild
+        user = interaction.user
+
         # Check if the user has already registered
-        player = await self.db.assassins.get_player_by_discord_id(interaction.user)
+        player = await self.db.assassins.get_player_by_discord_id(user)
         if not player:
             embed = discord.Embed(
-                title="Leave",
+                title="Assassins Leave",
                 description="You are not a registered player. Please use the /register command first.",
                 color=EmbedColors.RED,
             )
@@ -197,22 +229,41 @@ class Assassins(commands.Cog, name="assassin"):
             or player.status == PlayerStatus.SPECTATOR
         ):
             embed = discord.Embed(
-                title="Leave",
+                title="Assassins Leave",
                 description="You are already dead and cannot leave the game.",
                 color=EmbedColors.RED,
             )
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
-        # If game has not started, set the player status to spectator
-        if not self.started:
-            await self.db.assassins.set_player_status(
-                interaction.user, PlayerStatus.SPECTATOR
-            )
+        # If user is not in the lobby, they cannot leave
+        if guild.id not in self.lobby or user not in self.lobby[guild.id]:
             embed = discord.Embed(
-                title="Leave",
-                description="Successfully left the Assassins game.",
+                title="Assassins Leave",
+                description="You are not in the Assassins lobby.",
+                color=EmbedColors.RED,
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+        # If game has not started and the user is in the lobby, remove them
+        if not self.started[guild.id] and user in self.lobby[guild.id]:
+            self.lobby[guild.id].remove(user)
+            await self.db.assassins.set_player_status(user, PlayerStatus.SPECTATOR)
+            embed = discord.Embed(
+                title="Assassins Leave",
+                description="You have been removed from the Assassins lobby.",
                 color=EmbedColors.GREEN,
+            )
+
+            # Announce the player's removal
+            announceEmbed = discord.Embed(
+                title="Assassins Announcement",
+                description=f"{player.name} ({user.mention}) has left the game.",
+                color=EmbedColors.PRIMARY,
+            )
+            await sendAnnouncement(
+                self, guild, GuildChannelTypes.ASSASSINS, announceEmbed
             )
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
@@ -223,9 +274,7 @@ class Assassins(commands.Cog, name="assassin"):
             description="This will mark you as dead in the game. Are you sure you want to leave?",
             color=EmbedColors.PRIMARY,
         )
-        confirm = ConfirmationView(
-            timeout=60.0, authorID=interaction.user.id, delete_after=False
-        )
+        confirm = ConfirmationView(timeout=60.0, authorID=user.id, delete_after=False)
         await interaction.response.send_message(
             embed=embed, view=confirm, ephemeral=True
         )
@@ -234,32 +283,27 @@ class Assassins(commands.Cog, name="assassin"):
 
         # If the user confirms, set their status to dead
         if confirm.value:
-            await self.db.assassins.set_player_status(
-                interaction.user, PlayerStatus.DEAD
-            )
+            await self.db.assassins.set_player_status(user, PlayerStatus.DEAD)
             embed = discord.Embed(
-                title="Leave",
+                title="Assassins Leave",
                 description="You have forfeitted the current game and now declared dead.",
                 color=EmbedColors.GREEN,
             )
-            await (await interaction.original_response()).edit(embed=embed)
+            await (await interaction.original_response()).edit(embed=embed, view=None)
 
             # Announce the player's death
-            embed = discord.Embed(
-                title="Assassins Announcement",
-                description=f"{player.name} has forfeitted the game and is now dead.",
-                color=EmbedColors.PRIMARY,
-            )
+            self.bot.dispatch("player_death", user)
 
     @app_commands.command(name="start", description="Start the Assassins game.")
     async def start(self, interaction: discord.Interaction):
         """Start the Assassin game."""
         # Check if the guild has an Assassins channel set
-        guildID = interaction.guild.id
+        guild = interaction.guild
+        guildID = guild.id
         channelID = await self.db.guilds.get_channel(interaction.guild, "assassins")
         if not channelID:
             embed = discord.Embed(
-                title="Start",
+                title="Assassins Start",
                 description="The Assassins channel has not been set for this server. Please set the channel before starting the game.",
                 color=EmbedColors.RED,
             )
@@ -279,27 +323,28 @@ class Assassins(commands.Cog, name="assassin"):
         self.started[guildID] = True
         await self.db.assassins.set_game_state(guildID, True)
 
-        embed = discord.Embed(
+        announceEmbed = discord.Embed(
             title="Assassins Game Started!",
             description="The game has officially started. Best of luck to everyone!",
             color=EmbedColors.GREEN,
         )
 
         # Send the announcement with @everyone mention
-        await interaction.response.send_message(
-            content="@everyone",
-            embed=embed,
-            allowed_mentions=discord.AllowedMentions(everyone=True),
+        await sendAnnouncement(
+            self, guild, GuildChannelTypes.ASSASSINS, announceEmbed, everyone=True
         )
+        await interaction.response.send_message(embed=announceEmbed, ephemeral=True)
 
     @app_commands.command(name="end", description="End the Assassins game.")
     async def end(self, interaction: discord.Interaction):
         """End the Assassin game."""
         # Check if the game has already ended
-        guildID = interaction.guild.id
+        guild = interaction.guild
+        guildID = guild.id
+
         if not self.started.get(guildID, False):
             embed = discord.Embed(
-                title="End",
+                title="Assassins End",
                 description="The game has not started yet.",
                 color=EmbedColors.RED,
             )
@@ -315,6 +360,7 @@ class Assassins(commands.Cog, name="assassin"):
             await self.db.assassins.set_player_status(
                 interaction.guild.get_member(player.discordID), PlayerStatus.SPECTATOR
             )
+        self.lobby[guildID] = []
 
         # Send the announcement with @everyone mention
         embed = discord.Embed(
@@ -322,22 +368,26 @@ class Assassins(commands.Cog, name="assassin"):
             description="The game has officially ended. Thank you for playing!",
             color=EmbedColors.GREEN,
         )
-        await interaction.response.send_message(
-            content="@everyone",
-            embed=embed,
-            allowed_mentions=discord.AllowedMentions(everyone=True),
+        await sendAnnouncement(
+            self, guild, GuildChannelTypes.ASSASSINS, embed, everyone=True
         )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(name="profile", description="View an Assassin's profile.")
     @app_commands.describe(target="Discord User")
-    async def profile(self, interaction: discord.Interaction, target: discord.Member):
+    async def profile(
+        self, interaction: discord.Interaction, target: discord.Member = None
+    ):
         """View an Assassin's profile."""
         # Get the player's profile
+        if not target:
+            target = interaction.user
+
         player = await self.db.assassins.get_player_by_discord_id(target)
         if not player:
             embed = discord.Embed(
                 title="Profile",
-                description="This user has not registered for the Assassins game.",
+                description=f"{target.mention} has not registered for the Assassins game.",
                 color=EmbedColors.RED,
             )
             await interaction.response.send_message(embed=embed, ephemeral=True)

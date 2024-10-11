@@ -7,7 +7,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from discord.ext.commands import Context
-from utils.constants import EmbedColors
+from utils.constants import EmbedColors, GuildChannelTypes
 
 if TYPE_CHECKING:
     from bot import UniteBot
@@ -57,7 +57,11 @@ class Admin(commands.Cog, name="admin"):
         channel="The channel to set.",
     )
     @app_commands.choices(
-        channel_type=[app_commands.Choice(name="Assassins", value="assassins")]
+        channel_type=[
+            app_commands.Choice(
+                name=GuildChannelTypes.ASSASSINS, value=GuildChannelTypes.ASSASSINS
+            ),
+        ]
     )
     @app_commands.checks.has_permissions(administrator=True)
     async def set_channel(
@@ -67,9 +71,9 @@ class Admin(commands.Cog, name="admin"):
         channel: discord.TextChannel,
     ) -> None:
         """Set the channel for the bot."""
-        await self.bot.db.guilds.set_channel(
-            interaction.guild, channel_type, channel
-        )
+        print(channel_type)
+        print(GuildChannelTypes.ASSASSINS)
+        await self.bot.db.guilds.set_channel(interaction.guild, channel_type, channel)
         embed = discord.Embed(
             title="Channel Set",
             description=f"The {channel_type} channel for this server has been set to {channel.mention}.",
