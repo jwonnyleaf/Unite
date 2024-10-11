@@ -37,7 +37,7 @@ class Assassins(commands.Cog, name="assassin"):
         player = await self.db.assassins.get_player_by_discord_id(user)
         embed = discord.Embed(
             title="Assassins Announcement",
-            description=f"{player.name} ({user.mention}) has been eliminated.",
+            description=f"{player.name} ({user.mention}) has been eliminated. {len(self.lobby[user.guild.id])} players remain.",
             color=EmbedColors.RED,
         )
         self.lobby[user.guild.id].remove(user)
@@ -199,7 +199,7 @@ class Assassins(commands.Cog, name="assassin"):
         # Announce the player's entry
         announceEmbed = discord.Embed(
             title="Assassins Announcement",
-            description=f"{player.name} ({user.mention}) has joined the game.",
+            description=f"{player.name} ({user.mention}) has joined the game. {len(self.lobby[guild.id])} players are waiting in the lobby.",
             color=EmbedColors.PRIMARY,
         )
 
@@ -259,7 +259,7 @@ class Assassins(commands.Cog, name="assassin"):
             # Announce the player's removal
             announceEmbed = discord.Embed(
                 title="Assassins Announcement",
-                description=f"{player.name} ({user.mention}) has left the game.",
+                description=f"{player.name} ({user.mention}) has left the lobby. {len(self.lobby[guild.id])} players waiting now.",
                 color=EmbedColors.PRIMARY,
             )
             await sendAnnouncement(
