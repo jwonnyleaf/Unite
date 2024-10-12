@@ -373,6 +373,22 @@ class Assassins(commands.Cog, name="assassin"):
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
+    @app_commands.command(name="status", description="View the Assassins game status.")
+    async def status(self, interaction: discord.Interaction):
+        """View the Assassin game status."""
+        guild = interaction.guild
+        guildID = guild.id
+
+        embed = discord.Embed(
+            title="Assassins Game Status",
+            description=f"""
+            **Game Status:** {'Started' if self.started.get(guildID, False) else 'Not Started'}
+            **Players in Lobby:** {len(self.lobby.get(guildID, []))}
+            **Target:** {None}""",
+            color=EmbedColors.PRIMARY,
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
     @app_commands.command(name="profile", description="View an Assassin's profile.")
     @app_commands.describe(target="Discord User")
     async def profile(
