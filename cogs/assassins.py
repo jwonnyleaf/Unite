@@ -29,7 +29,13 @@ class Assassins(commands.Cog, name="assassin"):
         guilds = await self.db.guilds.get_all_guilds()
         for guild in guilds:
             self.started[guild.guildID] = guild.assassinsStarted
+            players = await self.db.assassins.get_all_players("guildID", guild.guildID)
             self.lobby[guild.guildID] = []
+            for player in players:
+                if player.status == PlayerStatus.ALIVE.value:
+                    user = await self.bot.fetch_user(player.discordID)
+                    if user:
+                        self.lobby[guild.guildID].append(user)
 
     @commands.Cog.listener()
     async def on_player_death(self, user: discord.Member):
@@ -98,7 +104,9 @@ class Assassins(commands.Cog, name="assassin"):
             return
 
         # Register the player
-        await self.db.assassins.add_player(name, email, interaction.user, photo_url)
+        await self.db.assassins.add_player(
+            interaction.guild.id, name, email, interaction.user, photo_url
+        )
 
         embed = discord.Embed(
             title="Register",

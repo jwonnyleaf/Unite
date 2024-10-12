@@ -21,6 +21,7 @@ class Assassins:
         query = f"""
             CREATE TABLE IF NOT EXISTS assassins (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                guildID INTEGER NOT NULL,
                 name TEXT NOT NULL,
                 email TEXT NOT NULL UNIQUE,
                 discordID INTEGER NOT NULL UNIQUE,
@@ -50,7 +51,12 @@ class Assassins:
         await conn.close()
 
     async def add_player(
-        self, name: str, email: str, discordID: discord.Member, photoURL: str
+        self,
+        guildID: int,
+        name: str,
+        email: str,
+        discordID: discord.Member,
+        photoURL: str,
     ):
         """Add a player to the database."""
         conn = await self._db.connect()
@@ -60,10 +66,17 @@ class Assassins:
 
         if player is None:
             await self._db.run(
-                f"""INSERT INTO {TABLE_NAME} (name, email, discordID, photoURL, status)
-                VALUES (?, ?, ?, ?, ?);
+                f"""INSERT INTO {TABLE_NAME} (guildID, name, email, discordID, photoURL, status)
+                VALUES (?, ?, ?, ?, ?, ?);
                 """,
-                (name, email, discordID.id, photoURL, self.status.SPECTATOR.value),
+                (
+                    guildID,
+                    name,
+                    email,
+                    discordID.id,
+                    photoURL,
+                    self.status.SPECTATOR.value,
+                ),
                 conn=conn,
             )
 
@@ -98,10 +111,11 @@ class Assassins:
 
         return player
 
-    async def get_all_players(self):
+    async def get_all_players(self, column: str = None, filter: str = None):
         """Get all players from the database."""
+        filter = f"WHERE {column} = '{filter}'" if filter else ""
         players = await self._db.execute(
-            f"SELECT * FROM {TABLE_NAME};",
+            f"SELECT * FROM {TABLE_NAME} {filter};",
             fetch="all",
         )
 
